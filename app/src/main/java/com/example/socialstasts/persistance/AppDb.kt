@@ -7,13 +7,12 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [AccountEntity::class, PostEntity::class, PostDailyStatsEntity::class],
-    version = 18,
+    version = 19,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
 
     abstract fun statsDao(): StatsDao
-
     companion object {
         private const val DB_NAME = "social_stats.db"
 

@@ -14,12 +14,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -49,8 +55,6 @@ import com.example.socialstasts.persistance.AppDb
 import com.example.socialstasts.persistance.StatsDao
 import com.example.socialstasts.persistance.StatsRepository
 import kotlinx.coroutines.launch
-import java.io.File
-import java.io.FileOutputStream
 import java.time.LocalDate
 private const val ACCOUNT_ALL = "__ALL__"
 
@@ -72,6 +76,7 @@ class CreatePostActivity : ComponentActivity() {
                     CreatePostScreen(
                         selectedAccName = intent.getStringExtra(SELECTED_ACC),
                         loadAccounts = { dao.getAllAccounts() },
+                        onBack = { finish() },
                         onCreate = { targets, title, description, picked ->
                             lifecycleScope.launch {
                                 createPost(
@@ -128,18 +133,23 @@ class CreatePostActivity : ComponentActivity() {
 private fun CreatePostScreen (
     selectedAccName: String?,
     loadAccounts: suspend () -> List<AccountEntity>,
+    onBack: () -> Unit,
     onCreate: (targets: List<String>, title: String, description: String, picked: PickedMedia) -> Unit
 ) {
     var accounts by remember { mutableStateOf<List<AccountEntity>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     // Post composition:
-    // - Selected account (or special "all")
+    // - Selected accounts (or special "all") NOTE: Fixed from previous version
     // - Title of the post (for easier lookup, not actual post text)
     // - Description of the post (used as text of the post)
     // - Selected media
     // - Account dialog visibility
-    var selectedAccKey by remember { mutableStateOf(selectedAccName ?: ACCOUNT_ALL) }
+    var selectedAccKeys by remember {
+        mutableStateOf(
+            if (selectedAccName != null) setOf(selectedAccName) else setOf(ACCOUNT_ALL)
+        )
+    }
     var title by remember { mutableStateOf("") }         // internal post title/label
     var description by remember { mutableStateOf("") }   // user-facing post text
     var pickedMedia by remember { mutableStateOf<PickedMedia?>(null) }
@@ -148,6 +158,11 @@ private fun CreatePostScreen (
     LaunchedEffect(Unit) {
         accounts = loadAccounts()
         isLoading = false
+
+        // If user came with a preselected account keep it, else if no preselection, keep AL
+        if (selectedAccName == null && accounts.isNotEmpty()) {
+            selectedAccKeys = setOf(ACCOUNT_ALL)
+        }
     }
 
     // Media picker
@@ -156,7 +171,14 @@ private fun CreatePostScreen (
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Create Post") }) }
+        topBar = {
+            TopAppBar(
+                title = { Text("Create Post") },
+                actions = {
+                    TextButton(onClick = onBack) { Text("Back") }
+                }
+            )
+        }
     ) { pad ->
         Column(
             modifier = Modifier
@@ -179,7 +201,8 @@ private fun CreatePostScreen (
 
             // Account selection summary card
             AccountSelectorCard(
-                selectedAccountKey = selectedAccKey,
+                accounts = accounts,
+                selectedAccKeys = selectedAccKeys,
                 onClick = { showAccountDialog = true }
             )
 
@@ -187,15 +210,9 @@ private fun CreatePostScreen (
             if (showAccountDialog) {
                 AccountSelector(
                     accounts = accounts,
-                    onDismiss = { showAccountDialog = false },
-                    onSelectAll = {
-                        selectedAccKey = ACCOUNT_ALL
-                        showAccountDialog = false
-                    },
-                    onSelectAccount = { accountName ->
-                        selectedAccKey = accountName
-                        showAccountDialog = false
-                    }
+                    selected = selectedAccKeys,
+                    onSelectedChange = { selectedAccKeys = it },
+                    onDismiss = { showAccountDialog = false }
                 )
             }
 
@@ -234,7 +251,7 @@ private fun CreatePostScreen (
             Button(
                 onClick = {
                     onCreate(
-                        resolveTargetAccounts(accounts, selectedAccKey),
+                        resolveTargetAccounts(accounts, selectedAccKeys),
                         title.trim(),
                         description.trim(),
                         pickedMedia ?: return@Button
@@ -281,16 +298,29 @@ private fun PostPreview(
     )
 }
 
+/**
+ * Changed from the single account selection to multi-selection
+ */
 @Composable
-private fun AccountSelectorCard(selectedAccountKey: String, onClick: () -> Unit) {
+private fun AccountSelectorCard(accounts: List<AccountEntity>, selectedAccKeys: Set<String>, onClick: () -> Unit) {
+    val isAll = selectedAccKeys.contains(ACCOUNT_ALL) ||
+            (selectedAccKeys.isNotEmpty() && selectedAccKeys.containsAll(accounts.map { it.name }
+                .toSet()))
+
+    val label = when {
+        isAll -> "All accounts"
+        selectedAccKeys.isEmpty() -> "None selected"
+        else -> selectedAccKeys.joinToString(", ")
+    }
+
     OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
         Column(Modifier.padding(12.dp)) {
-            Text("Account", style = MaterialTheme.typography.labelMedium)
-            Text(if (selectedAccountKey == ACCOUNT_ALL) "All accounts" else selectedAccountKey)
+            Text("Accounts", style = MaterialTheme.typography.labelMedium)
+            Text(label)
         }
     }
 }
@@ -302,36 +332,85 @@ private fun AccountSelectorCard(selectedAccountKey: String, onClick: () -> Unit)
 @Composable
 private fun AccountSelector(
     accounts: List<AccountEntity>,
-    onDismiss: () -> Unit,
-    onSelectAll: () -> Unit,
-    onSelectAccount: (String) -> Unit
+    selected: Set<String>,
+    onSelectedChange: (Set<String>) -> Unit,
+    onDismiss: () -> Unit
 ) {
+    val names = accounts.map { it.name }.toSet()
+    val isAll = selected.contains(ACCOUNT_ALL) ||
+            (selected.isNotEmpty() && selected.containsAll(names))
+
+    // Collapses all individually selected into ACCOUNT_ALL
+    fun normalize(next: Set<String>): Set<String> {
+        return if (next.isNotEmpty() && next.containsAll(names)) {
+            setOf(ACCOUNT_ALL)
+        } else next
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Select account") },
-        confirmButton = {},
+        title = { Text("Select accounts") },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                enabled = selected.isNotEmpty() || isAll
+            ) { Text("Done") }
+        },
         text = {
             Column {
-                AccountSelectorRow(text = "All accounts", onClick = onSelectAll)
-                accounts.forEach { account ->
-                    AccountSelectorRow(text = account.name) {
-                        onSelectAccount(account.name)
+                AccountSelectorRow(
+                    text = "All accounts",
+                    checked = isAll,
+                    onToggle = {
+                        if (!isAll) {
+                            onSelectedChange(setOf(ACCOUNT_ALL))
+                        }
                     }
+                )
+
+                accounts.forEach { account ->
+                    AccountSelectorRow(
+                        text = account.name,
+                        checked = isAll || selected.contains(account.name),
+                        onToggle = {
+                            val next = when {
+                                isAll -> setOf(account.name)
+                                selected.contains(account.name) -> {
+                                    if (selected.size == 1) selected else (selected - account.name)
+                                }
+                                else -> selected + account.name
+                            }
+                            onSelectedChange(normalize(next))
+                        }
+                    )
                 }
             }
         }
     )
 }
 
+
+// CHANGE: checkbox row UI
 @Composable
-private fun AccountSelectorRow(text: String, onClick: () -> Unit) {
-    Text(
-        text = text,
+private fun AccountSelectorRow(
+    text: String,
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp)
-    )
+            .clickable(onClick = onToggle)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = { onToggle() }
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(text)
+    }
 }
 
 // Remembers an Activity Result launcher for Android's document picker
@@ -390,12 +469,12 @@ private fun MediaSelectorCard(pickedMedia: PickedMedia?, onClick: () -> Unit) {
 /**
  * Based on selected accounts, returns their names
  */
-private fun resolveTargetAccounts(accounts: List<AccountEntity>, selectedAccKey: String): List<String> {
-    return if (selectedAccKey == ACCOUNT_ALL) {
-        accounts.map { it.name }
-    } else {
-        listOf(selectedAccKey)
-    }
+private fun resolveTargetAccounts(accounts: List<AccountEntity>, selectedAccKeys: Set<String>): List<String> {
+    val names = accounts.map { it.name }
+    val isAll = selectedAccKeys.contains(ACCOUNT_ALL) ||
+            (selectedAccKeys.isNotEmpty() && selectedAccKeys.containsAll(names.toSet()))
+
+    return if (isAll) { names } else { names.filter { selectedAccKeys.contains(it) } }
 }
 
 /**
