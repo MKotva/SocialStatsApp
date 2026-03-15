@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [AccountEntity::class, PostEntity::class, PostDailyStatsEntity::class],
-    version = 19,
+    version = 21,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {

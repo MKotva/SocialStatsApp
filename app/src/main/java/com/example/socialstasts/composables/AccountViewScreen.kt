@@ -1,188 +1,169 @@
-package com.example.socialstasts
+package com.example.socialstasts.composables
 
-import android.content.Intent
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FabPosition
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
+import com.example.socialstasts.models.AccountViewModel
+import com.example.socialstasts.models.AccountViewModelFactory
 import com.example.socialstasts.components.BarChart
-import com.example.socialstasts.components.Bucket
 import com.example.socialstasts.components.Group
 import com.example.socialstasts.components.Series
 import com.example.socialstasts.helpers.RangePreset
-import com.example.socialstasts.persistance.AppDb
+import com.example.socialstasts.helpers.buildBuckets
+import com.example.socialstasts.helpers.fileNameFromUri
+import com.example.socialstasts.helpers.formatGrouped
 import com.example.socialstasts.persistance.PostEntity
-import com.example.socialstasts.persistance.StatsDao
-import kotlinx.coroutines.flow.flowOf
+import com.example.socialstasts.persistance.StatsRepository
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
-import kotlin.math.min
 
-class AccountViewActivity : ComponentActivity() {
-    companion object { const val ACC_NAME = "account_name" }
-    private lateinit var db: AppDb
-    private lateinit var dao: StatsDao
+@Composable
+fun AccountViewRoute(
+    accName: String,
+    repo: StatsRepository,
+    onBack: () -> Unit,
+    onNewPostClick: (String) -> Unit
+) {
+    val fac = remember(repo, accName) { AccountViewModelFactory(repo, accName) }
+    val vm: AccountViewModel = viewModel(factory = fac)
+    val posts by vm.posts.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        getDatabase()
-
-        setContent {
-            MaterialTheme {
-                Surface(Modifier.fillMaxSize()) {
-                    AccountViewRoute(
-                        dao = dao,
-                        accName = intent.getStringExtra(ACC_NAME).orEmpty(),
-                        onBack = { finish() }
-                    )
-                }
-            }
-        }
-    }
-
-    private fun getDatabase() {
-        db = AppDb.get(this)
-        dao = db.statsDao()
-    }
+    AccountDetailScreen(
+        accName = accName,
+        posts = posts,
+        repo = repo,
+        onBack = onBack,
+        onNewPostClick = onNewPostClick
+    )
 }
-
-////////Composables////////
-///////////////////////////
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AccountViewRoute(dao: StatsDao, accName: String, onBack: () -> Unit) {
-    val context = LocalContext.current
+private fun AccountDetailScreen(
+    accName: String,
+    posts: List<PostEntity>,
+    repo: StatsRepository,
+    onBack: () -> Unit,
+    onNewPostClick: (String) -> Unit
+) {
     val today = remember { LocalDate.now() }
-    val dateFormatter = remember { DateTimeFormatter.ofPattern("d MMM uuuu") }
+    val dateFormatter = remember { DateTimeFormatter.ofPattern("d.M.yyyy") }
 
     // Current chart range selection + end date of displayed window
-    var range by remember { mutableStateOf(RangePreset.WEEK) }
-    var windowEnd by remember { mutableStateOf(today) }
-
-
-    // Resolve account summary from account namee
-    val summariesFlow = remember(today) {
-        val fromDay = today.minusDays(360 - 1).toEpochDay()
-        val toDay = today.toEpochDay()
-        dao.observeAccountSummaries(fromDay, toDay)
-    }
-    val summaries by summariesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val summary = remember(summaries, accName) {
-        summaries.firstOrNull { it.name == accName }
-    }
-
-
-    // Observe all posts for the selected account (or empty until account resolves)
-    val postsFlow = remember(summary?.accountId) {
-        summary?.let { dao.observePostsForAccount(it.accountId) } ?: flowOf(emptyList())
-    }
-    val posts by postsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-
+    var range by rememberSaveable { mutableStateOf(RangePreset.WEEK) }
+    var windowEndEpochDay by rememberSaveable { mutableLongStateOf(today.toEpochDay()) }
+    val windowEnd = remember(windowEndEpochDay) { LocalDate.ofEpochDay(windowEndEpochDay) }
 
     // Observe daily view counts for current chart window
-    val chartFlow = remember(summary?.accountId, range, windowEnd) {
-        val accId = summary?.accountId
-        if (accId == null) {
-            flowOf(emptyList())
-        } else {
-            val fromDay = windowEnd.minusDays(range.days - 1).toEpochDay()
-            val toDay = windowEnd.toEpochDay()
-            dao.observeAccountDailyViews(accId, fromDay, toDay)
-        }
+    val chartFlow = remember(accName, repo, range, windowEndEpochDay) {
+        repo.observeAccountDailyViewsByName(
+            accName = accName,
+            fromDay = windowEnd.minusDays(range.days - 1).toEpochDay(),
+            toDay = windowEnd.toEpochDay()
+        )
     }
     val dailyRows by chartFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val dailyMap = remember(dailyRows) { dailyRows.associate { it.epochDay to it.views } }
 
     // Convert daily rows into chart buckets
-    val buckets = remember(dailyRows, range, windowEnd) {
+    val buckets = remember(range, windowEnd, dailyMap) {
         buildBuckets(
             today = windowEnd,
             rangeDays = range.days.toInt(),
             bucketCount = range.buckets,
             bucketDays = range.bucketDays,
-            daily = dailyRows.associate { it.epochDay to it.views }
+            daily = dailyMap
         )
     }
 
     // Swipe gesture state used to change chart periods left/right
-    var dragX by remember { mutableStateOf(0f) }
-    val swipeThresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
+    var dragX by remember { mutableFloatStateOf(0f) }
+    val swipeThresholdPx = 80f
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(accName.ifBlank { "Account" }) },
+                title = { Text(accName) },
                 actions = {
-                    TextButton(onClick = onBack) { Text("Back") }
+                    TextButton(onClick = onBack) {
+                        Text("Back")
+                    }
                 }
             )
         },
 
         // FAB opens CreatePostActivity with this account preselected
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    context.startActivity(
-                        Intent(context, CreatePostActivity::class.java).apply {
-                            putExtra(CreatePostActivity.SELECTED_ACC, accName)
-                        }
-                    )
-                }
-            ) {
+            FloatingActionButton(onClick = { onNewPostClick(accName) }) {
                 Icon(Icons.Filled.Add, contentDescription = "New Post")
             }
-        }
+        },
+        floatingActionButtonPosition = FabPosition.End
     ) { padding ->
-        // Check if summary is resolved or show a loading/not-found state
-        if (summary == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Loading… (or account not found)")
-            }
-            return@Scaffold
-        }
 
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+                .padding(padding)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                Spacer(Modifier.height(4.dp))
+            }
 
             // Chart range selector
             item {
                 RangeSelector(
                     value = range,
-                    onChange = {
-                        range = it
-                        windowEnd = today
+                    onChange = { selected ->
+                        range = selected
+                        windowEndEpochDay = minOf(today, LocalDate.ofEpochDay(windowEndEpochDay)).toEpochDay()
                     }
                 )
             }
@@ -207,9 +188,9 @@ private fun AccountViewRoute(dao: StatsDao, accName: String, onBack: () -> Unit)
                             onDragStopped = {
                                 if (abs(dragX) >= swipeThresholdPx) {
                                     if (dragX > 0f) {
-                                        windowEnd = range.shiftBack(windowEnd)
+                                        windowEndEpochDay = range.shiftBack(windowEnd).toEpochDay()
                                     } else if (windowEnd.isBefore(today)) {
-                                        windowEnd = minOf(today, range.shiftForward(windowEnd))
+                                        windowEndEpochDay = minOf(today, range.shiftForward(windowEnd)).toEpochDay()
                                     }
                                 }
                                 dragX = 0f
@@ -249,7 +230,7 @@ private fun AccountViewRoute(dao: StatsDao, accName: String, onBack: () -> Unit)
                 Text(
                     "Posts",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Bold
                 )
             }
 
@@ -387,33 +368,3 @@ fun PostMediaPreview(
         contentScale = ContentScale.Crop
     )
 }
-
-
-////////Helpers////////
-///////////////////////////
-
-/**
-Builds buckets for the Bar chart as a sum of views per selected range
- */
-private fun buildBuckets(
-    today: LocalDate,
-    rangeDays: Int,
-    bucketCount: Int,
-    bucketDays: Int,
-    daily: Map<Long, Int>
-): Array<Bucket> {
-    val tempBuckets = Array(bucketCount) { Bucket(0f, 0) }
-
-    for (dayOffset in 0 until rangeDays) {
-        val views = daily[today.minusDays((rangeDays - 1 - dayOffset).toLong()).toEpochDay()] ?: 0
-        tempBuckets[min(bucketCount - 1, dayOffset / bucketDays)].observe(views.toFloat())
-    }
-
-    return Array(bucketCount) { i ->
-        val b = tempBuckets[i]
-        if (b.count == 0) Bucket(0f, 0) else Bucket(sum = b.sum, count = 1)
-    }
-}
-
-private fun Int.formatGrouped(): String = "%,d".format(this)
-private fun fileNameFromUri(uriString: String): String = uriString.substringAfterLast('/')
