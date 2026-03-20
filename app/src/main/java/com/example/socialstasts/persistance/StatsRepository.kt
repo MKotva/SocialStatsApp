@@ -6,7 +6,9 @@ import com.example.socialstasts.helpers.PickedMedia
 import com.example.socialstasts.helpers.UpdatePack
 import com.example.socialstasts.mock.MockData
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import java.time.LocalDate
 
@@ -99,30 +101,26 @@ class StatsRepository(private val db: AppDb, private val dao: StatsDao) {
 
     suspend fun getAllAccounts(): List<AccountEntity> = dao.getAllAccounts()
 
-    fun observeAccountSummariesLast7Days() = dao.observeAccountSummaries(
+    fun observeAccountSummariesLast7Days() = dao.getAccountSummaries(
         fromDay7 = LocalDate.now().minusDays(6).toEpochDay(),
         toDay = LocalDate.now().toEpochDay()
     )
 
-    fun observePostsForAccountName(accName: String): Flow<List<PostEntity>> {
-        return flowOf(accName).flatMapLatest { name ->
-            val accountId = dao.getAccountByName(name)?.id
-            if (accountId == null) {
-                flowOf(emptyList())
-            } else {
-                dao.observePostsForAccount(accountId)
-            }
+    fun observePostsForAccountName(accName: String): Flow<List<PostEntity>> = flow {
+        val accountId = dao.getAccountByName(accName)?.id
+        if (accountId == null) {
+            emit(emptyList())
+        } else {
+            emitAll(dao.getPostsForAccount(accountId))
         }
     }
 
-    fun observeAccountDailyViewsByName(accName: String, fromDay: Long, toDay: Long): Flow<List<DayViewsRow>> {
-        return flowOf(Triple(accName, fromDay, toDay)).flatMapLatest { (name, start, end) ->
-            val accountId = dao.getAccountByName(name)?.id
-            if (accountId == null) {
-                flowOf(emptyList())
-            } else {
-                dao.observeAccountDailyViews(accountId, start, end)
-            }
+    fun observeAccountDailyViewsByName(accName: String, fromDay: Long, toDay: Long): Flow<List<DayViewsRow>> = flow {
+        val accountId = dao.getAccountByName(accName)?.id
+        if (accountId == null) {
+            emit(emptyList())
+        } else {
+            emitAll(dao.getAccountDailyViews(accountId, fromDay, toDay))
         }
     }
 

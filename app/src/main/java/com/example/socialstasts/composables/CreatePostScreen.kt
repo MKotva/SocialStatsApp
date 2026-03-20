@@ -51,15 +51,15 @@ import com.example.socialstasts.helpers.PickedMedia
 import com.example.socialstasts.helpers.resolveTargetAccounts
 import com.example.socialstasts.helpers.getAccountsLabel
 import com.example.socialstasts.persistance.AccountEntity
-import com.example.socialstasts.persistance.StatsRepository
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 
 @Composable
-fun CreatePostRoute(selectedAccName: String?, repo: StatsRepository, onBack: () -> Unit) {
+fun CreatePostRoute(selectedAccName: String?, onBack: () -> Unit) {
     val context = LocalContext.current
-    val factory = remember(repo, selectedAccName) { CreatePostViewModelFactory(repo, selectedAccName) }
-    val vm: CreatePostViewModel = viewModel(factory = factory)
+    val vm: CreatePostViewModel = viewModel(
+        factory = CreatePostViewModelFactory.provideFactory(selectedAccName)
+    )
     val uiState by vm.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(uiState.postCreated) {

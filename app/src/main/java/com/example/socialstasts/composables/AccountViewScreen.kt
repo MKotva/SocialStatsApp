@@ -47,36 +47,49 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
-import com.example.socialstasts.models.AccountViewModel
-import com.example.socialstasts.models.AccountViewModelFactory
 import com.example.socialstasts.components.BarChart
 import com.example.socialstasts.components.Group
 import com.example.socialstasts.components.Series
+import com.example.socialstasts.helpers.DayViewsRow
 import com.example.socialstasts.helpers.RangePreset
 import com.example.socialstasts.helpers.buildBuckets
 import com.example.socialstasts.helpers.fileNameFromUri
 import com.example.socialstasts.helpers.formatGrouped
+import com.example.socialstasts.models.AccountViewModel
+import com.example.socialstasts.models.AccountViewModelFactory
 import com.example.socialstasts.persistance.PostEntity
-import com.example.socialstasts.persistance.StatsRepository
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import kotlin.collections.associate
 import kotlin.math.abs
 
 @Composable
-fun AccountViewRoute(
-    accName: String,
-    repo: StatsRepository,
-    onBack: () -> Unit,
-    onNewPostClick: (String) -> Unit
-) {
-    val fac = remember(repo, accName) { AccountViewModelFactory(repo, accName) }
-    val vm: AccountViewModel = viewModel(factory = fac)
+fun AccountViewRoute(accName: String, onBack: () -> Unit, onNewPostClick: (String) -> Unit) {
+    val vm: AccountViewModel = viewModel(factory = AccountViewModelFactory(accName))
     val posts by vm.posts.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    val today = remember { LocalDate.now() }
+    var range by rememberSaveable { mutableStateOf(RangePreset.WEEK) }
+    var windowEndEpochDay by rememberSaveable { mutableLongStateOf(today.toEpochDay()) }
+    val windowEnd = remember(windowEndEpochDay) { LocalDate.ofEpochDay(windowEndEpochDay) }
+
+    val chartFlow = remember(accName, range, windowEndEpochDay) {
+        vm.observeDailyViews(
+            accName = accName,
+            fromDay = windowEnd.minusDays(range.days - 1).toEpochDay(),
+            toDay = windowEnd.toEpochDay()
+        )
+    }
+    val dailyRows by chartFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     AccountDetailScreen(
         accName = accName,
         posts = posts,
-        repo = repo,
+        dailyRows = dailyRows,
+        range = range,
+        onRangeChange = { range = it },
+        windowEndEpochDay = windowEndEpochDay,
+        onWindowEndEpochDayChange = { windowEndEpochDay = it },
         onBack = onBack,
         onNewPostClick = onNewPostClick
     )
@@ -87,27 +100,17 @@ fun AccountViewRoute(
 private fun AccountDetailScreen(
     accName: String,
     posts: List<PostEntity>,
-    repo: StatsRepository,
+    dailyRows: List<DayViewsRow>,
+    range: RangePreset,
+    onRangeChange: (RangePreset) -> Unit,
+    windowEndEpochDay: Long,
+    onWindowEndEpochDayChange: (Long) -> Unit,
     onBack: () -> Unit,
     onNewPostClick: (String) -> Unit
 ) {
     val today = remember { LocalDate.now() }
     val dateFormatter = remember { DateTimeFormatter.ofPattern("d.M.yyyy") }
-
-    // Current chart range selection + end date of displayed window
-    var range by rememberSaveable { mutableStateOf(RangePreset.WEEK) }
-    var windowEndEpochDay by rememberSaveable { mutableLongStateOf(today.toEpochDay()) }
     val windowEnd = remember(windowEndEpochDay) { LocalDate.ofEpochDay(windowEndEpochDay) }
-
-    // Observe daily view counts for current chart window
-    val chartFlow = remember(accName, repo, range, windowEndEpochDay) {
-        repo.observeAccountDailyViewsByName(
-            accName = accName,
-            fromDay = windowEnd.minusDays(range.days - 1).toEpochDay(),
-            toDay = windowEnd.toEpochDay()
-        )
-    }
-    val dailyRows by chartFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val dailyMap = remember(dailyRows) { dailyRows.associate { it.epochDay to it.views } }
 
     // Convert daily rows into chart buckets
@@ -162,8 +165,8 @@ private fun AccountDetailScreen(
                 RangeSelector(
                     value = range,
                     onChange = { selected ->
-                        range = selected
-                        windowEndEpochDay = minOf(today, LocalDate.ofEpochDay(windowEndEpochDay)).toEpochDay()
+                        onRangeChange(selected)
+                        onWindowEndEpochDayChange(minOf(today, LocalDate.ofEpochDay(windowEndEpochDay)).toEpochDay())
                     }
                 )
             }
@@ -188,9 +191,11 @@ private fun AccountDetailScreen(
                             onDragStopped = {
                                 if (abs(dragX) >= swipeThresholdPx) {
                                     if (dragX > 0f) {
-                                        windowEndEpochDay = range.shiftBack(windowEnd).toEpochDay()
+                                        onWindowEndEpochDayChange(range.shiftBack(windowEnd).toEpochDay())
                                     } else if (windowEnd.isBefore(today)) {
-                                        windowEndEpochDay = minOf(today, range.shiftForward(windowEnd)).toEpochDay()
+                                        onWindowEndEpochDayChange(
+                                            minOf(today, range.shiftForward(windowEnd)).toEpochDay()
+                                        )
                                     }
                                 }
                                 dragX = 0f

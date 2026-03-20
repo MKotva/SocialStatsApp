@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.socialstasts.helpers.PickedMedia
 import com.example.socialstasts.helpers.resolveTargetAccounts
 import com.example.socialstasts.persistance.AccountEntity
+import com.example.socialstasts.persistance.AppDb
 import com.example.socialstasts.persistance.StatsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -121,18 +122,23 @@ class CreatePostViewModel(
     }
 }
 
-class CreatePostViewModelFactory(
-    private val repo: StatsRepository,
-    private val selectedAccName: String?
-) : ViewModelProvider.Factory {
+object CreatePostViewModelFactory {
+    fun provideFactory(selectedAccName: String?) = object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+            val context = checkNotNull(
+                extras[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]
+            ).applicationContext
 
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-        val savedState = extras.createSavedStateHandle()
-        return CreatePostViewModel(
-            repo = repo,
-            savedState = savedState,
-            accName = selectedAccName
-        ) as T
+            val db = AppDb.get(context)
+            val repo = StatsRepository(db, db.statsDao())
+            val savedState = extras.createSavedStateHandle()
+
+            return CreatePostViewModel(
+                repo = repo,
+                savedState = savedState,
+                accName = selectedAccName
+            ) as T
+        }
     }
 }

@@ -65,7 +65,7 @@ interface StatsDao {
         WHERE accountId = :accountId
         ORDER BY createdAtEpochDay DESC, postId DESC
     """)
-    fun observePostsForAccount(accountId: Long): Flow<List<PostEntity>>
+    fun getPostsForAccount(accountId: Long): Flow<List<PostEntity>>
 
     // Streams summed daily views for one account within a day range
     @Query("""
@@ -77,7 +77,7 @@ interface StatsDao {
         GROUP BY d.epochDay
         ORDER BY d.epochDay
     """)
-    fun observeAccountDailyViews(accountId: Long, fromDay: Long, toDay: Long): Flow<List<DayViewsRow>>
+    fun getAccountDailyViews(accountId: Long, fromDay: Long, toDay: Long): Flow<List<DayViewsRow>>
 
     // Streams account cards summary: total views/posts + 7-day views/posts window metrics
     @Query("""
@@ -104,5 +104,5 @@ interface StatsDao {
         GROUP BY a.id, a.name
         ORDER BY totalViews DESC
     """)
-    fun observeAccountSummaries(fromDay7: Long, toDay: Long): Flow<List<AccountSummaryRow>>
+    fun getAccountSummaries(fromDay7: Long, toDay: Long): Flow<List<AccountSummaryRow>>
 }

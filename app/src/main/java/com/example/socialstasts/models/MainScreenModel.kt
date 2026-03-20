@@ -3,33 +3,41 @@ package com.example.socialstasts.models
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import com.example.socialstasts.AppContainer
+import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.socialstasts.mock.MediaSeeder
+import com.example.socialstasts.persistance.AppDb
 import com.example.socialstasts.persistance.StatsRepository
 
 class MainViewModel(
     private val repo: StatsRepository,
-    private val mediaSeeder: MediaSeeder,
     private val context: Context
 ) : ViewModel() {
     val summaries = repo.observeAccountSummariesLast7Days()
+
     suspend fun runMockUpdate() {
         repo.runMockUpdate(
-            imgUris = mediaSeeder.listImageUris(context),
-            vidUris = mediaSeeder.listVideoUris(context)
+            imgUris = MediaSeeder.listImageUris(context),
+            vidUris = MediaSeeder.listVideoUris(context)
         )
     }
 }
 
-class MainViewModelFactory(
-    private val appContainer: AppContainer
-) : ViewModelProvider.Factory {
+object MainViewModelFactory : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+    override fun <T : ViewModel> create(
+        modelClass: Class<T>,
+        extras: CreationExtras
+    ): T {
+        val app = checkNotNull(
+            extras[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]
+        )
+
+        val db = AppDb.get(app.applicationContext)
+        val repo = StatsRepository(db, db.statsDao())
+
         return MainViewModel(
-            repo = appContainer.repo,
-            mediaSeeder = appContainer.mediaSeeder,
-            context = appContainer.context
+            repo = repo,
+            context = app.applicationContext
         ) as T
     }
 }

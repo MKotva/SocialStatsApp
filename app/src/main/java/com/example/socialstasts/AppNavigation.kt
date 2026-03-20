@@ -2,7 +2,6 @@ package com.example.socialstasts
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -26,13 +25,13 @@ object Destinations {
             "$CREATE?selectedAccName=${Uri.encode(selectedAccName)}"
         }
     }
+
     fun account(name: String): String = "$ACCOUNT/${Uri.encode(name)}"
 }
 
 @Composable
-fun AppNavigation(appContainer: AppContainer) {
+fun AppNavigation() {
     val controller = rememberNavController()
-    val fac = remember(appContainer) { MainViewModelFactory(appContainer) }
 
     NavHost(
         navController = controller,
@@ -40,7 +39,7 @@ fun AppNavigation(appContainer: AppContainer) {
     ) {
         composable(Destinations.MAIN) {
             MainRoute(
-                vm = viewModel(factory = fac),
+                vm = viewModel(factory = MainViewModelFactory),
                 onNewPostClick = { controller.navigate(Destinations.createPost()) },
                 onAccountClick = { controller.navigate(Destinations.account(it)) }
             )
@@ -58,7 +57,6 @@ fun AppNavigation(appContainer: AppContainer) {
         ) { stackEntry ->
             CreatePostRoute(
                 selectedAccName = stackEntry.arguments?.getString("selectedAccName"),
-                repo = appContainer.repo,
                 onBack = { controller.popBackStack() }
             )
         }
@@ -69,7 +67,6 @@ fun AppNavigation(appContainer: AppContainer) {
         ) { stackEntry ->
             AccountViewRoute(
                 accName = stackEntry.arguments?.getString("accountName").orEmpty(),
-                repo = appContainer.repo,
                 onBack = { controller.popBackStack() },
                 onNewPostClick = { controller.navigate(Destinations.createPost(it)) }
             )
